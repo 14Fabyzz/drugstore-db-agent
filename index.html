@@ -398,6 +398,46 @@
             transform: translateY(-2px);
         }
 
+       /* --- Estilos para la Tabla (Corregidos) --- */
+        .message-content .chat-table { /* Selector corregido */
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+            font-size: 0.9rem;
+            border-radius: 8px; /* Bordes redondeados */
+            overflow: hidden; /* Para que el radius afecte a th */
+            border: 1px solid rgba(0, 180, 216, 0.2); /* Borde sutil */
+        }
+
+        .message-content .chat-table th,
+        .message-content .chat-table td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid rgba(0, 180, 216, 0.2); /* Separador de fila */
+            line-height: 1.4;
+            color: var(--text-primary); /* Color de texto general */
+        }
+        
+        /* Cabeceras */
+        .message-content .chat-table th {
+            background-color: rgba(0, 180, 216, 0.1); /* Fondo sutil para cabecera */
+            color: var(--primary-light); /* Texto de cabecera más brillante */
+            font-weight: 600;
+            
+            /* Arregla el problema de texto pegado */
+            white-space: normal; 
+            word-break: break-word;
+        }
+
+        /* Filas */
+        .message-content .chat-table tr:nth-child(even) {
+            background-color: rgba(255, 255, 255, 0.02); /* Cebra sutil */
+        }
+        
+        .message-content .chat-table tr:last-child td {
+            border-bottom: none; /* Sin borde en la última fila */
+        }
+
         /* Responsive */
         @media (max-width: 768px) {
             .chat-container {
@@ -418,6 +458,8 @@
                 font-size: 1.1rem;
             }
         }
+
+        
     </style>
 </head>
 <body>
@@ -490,6 +532,7 @@
             return now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
         }
 
+        // --- FUNCIÓN MODIFICADA ---
         function addMessage(type, text, showTyping = false) {
             const wrapper = document.createElement('div');
             wrapper.classList.add('message-wrapper', type);
@@ -513,8 +556,9 @@
                     </div>
                 `;
             } else {
+                const formattedText = text.replace(/\n/g, '<br>');
                 content.innerHTML = `
-                    <div>${text}</div>
+                    <div>${formattedText}</div>
                     <div class="timestamp">${getCurrentTime()}</div>
                 `;
             }
@@ -527,7 +571,85 @@
             
             return wrapper;
         }
+        
+        // --- ¡NUEVA FUNCIÓN! ---
+        // Aquí puedes añadir todas las traducciones que necesites
+        function translateHeader(header) {
+            const translations = {
+                'nombre_producto': 'Producto',
+                'cantidad_total_disponible': 'Disponible',
+                'precio_venta': 'Precio',
+                'nombre_proveedor': 'Proveedor',
+                'telefono_proveedor': 'Teléfono',
+                'direccion_proveedor': 'Dirección',
+                'fecha_venta': 'Fecha',
+                'total_venta': 'Total',
+                // Añade más traducciones aquí
+            };
+            // Devuelve la traducción o el nombre original si no existe
+            return translations[header] || header;
+        }
 
+
+        // --- FUNCIÓN MODIFICADA ---
+        // (Usa translateHeader)
+        function createTableHtml(data) {
+            if (!data || data.length === 0) return '';
+
+            const headers = Object.keys(data[0]);
+            let table = '<table class="chat-table">';
+            
+            // Fila de cabecera
+            table += '<thead><tr>';
+            for (const header of headers) {
+                // ¡AQUÍ ESTÁ LA MAGIA!
+                table += `<th>${translateHeader(header)}</th>`;
+            }
+            table += '</tr></thead>';
+            
+            // Filas de datos
+            table += '<tbody>';
+            for (const row of data) {
+                table += '<tr>';
+                for (const header of headers) {
+                    const cellData = row[header] !== null && row[header] !== undefined ? row[header] : '';
+                    table += `<td>${cellData}</td>`;
+                }
+                table += '</tr>';
+            }
+            table += '</tbody></table>';
+            
+            return table;
+        }
+
+        // --- FUNCIÓN (Sin cambios) ---
+        function addTableMessage(title, tableData) {
+            const wrapper = document.createElement('div');
+            wrapper.classList.add('message-wrapper', 'bot');
+
+            const avatar = document.createElement('div');
+            avatar.classList.add('avatar', 'bot');
+            avatar.innerHTML = '<i class="fas fa-robot"></i>';
+
+            const content = document.createElement('div');
+            content.classList.add('message-content');
+            
+            const tableHtml = createTableHtml(tableData);
+            const formattedTitle = title.replace(/\n/g, '<br>');
+
+            content.innerHTML = `
+                <div>${formattedTitle}</div>
+                ${tableHtml}
+                <div class="timestamp">${getCurrentTime()}</div>
+            `;
+            
+            wrapper.appendChild(avatar);
+            wrapper.appendChild(content);
+            chatMessages.appendChild(wrapper);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // --- FUNCIÓN (Sin cambios) ---
         async function sendMessage(question) {
             if (!question.trim()) return;
 
@@ -551,10 +673,20 @@
                 }
 
                 const data = await response.json();
+                const answer = data.answer;
                 
                 chatMessages.removeChild(typingMessage);
                 
-                addMessage('bot', data.answer);
+                try {
+                    const jsonData = JSON.parse(answer);
+                    if (jsonData && jsonData.type === 'table') {
+                        addTableMessage(jsonData.title, jsonData.content);
+                    } else {
+                        addMessage('bot', answer);
+                    }
+                } catch (e) {
+                    addMessage('bot', answer);
+                }
 
             } catch (error) {
                 console.error('Error:', error);
@@ -566,6 +698,7 @@
             }
         }
 
+        // --- FUNCIÓN (Sin cambios) ---
         function sendQuickMessage(message) {
             userInput.value = message;
             sendMessage(message);
@@ -585,5 +718,7 @@
 
         userInput.focus();
     </script>
+</body>
+</html>
 </body>
 </html>

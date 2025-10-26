@@ -36,6 +36,13 @@ class GeminiModel:
         """Construye el prompt con contexto"""
         history = "\n".join([
             f"{'Usuario' if m['role']=='user' else 'Asistente'}: {m['content']}"
-            for m in context[-3:]  # Últimos 3 mensajes
+            for m in context  # <-- Eliminamos el [-3:] para usar todo el historial
         ])
-        return f"Conversación previa:\n{history}\n\nPregunta actual:\n{prompt}"
+        
+        # Este nuevo formato es mucho más claro para la IA
+        return f"""HISTORIAL DE LA CONVERSACIÓN PREVIA:
+{history}
+
+TAREA ACTUAL (basada en la conversación previa y la última pregunta del usuario):
+{prompt}
+"""
