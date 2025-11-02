@@ -6,15 +6,26 @@ from typing import List, Dict, Any, Optional
 from models.gemini import GeminiModel
 from tools.database import DatabaseTool
 from tools.mysql_tool import MySQLTool
+import json
+from decimal import Decimal
+from datetime import date, datetime # <-- 1. IMPORTAR DATE/DATETIME
 
+# 2. CLASE DE CODIFICADOR MEJORADA
+class CustomDecimalEncoder(json.JSONEncoder):
+    """
+    Codificador de JSON personalizado para manejar objetos Decimal y Date/Datetime.
+    """
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        if isinstance(obj, (date, datetime)):
+            return obj.isoformat() # Convierte la fecha a un string estándar
+        return super().default(obj)
 
 class MCPAgent:
     """
     Agente con arquitectura MCP simplificada
-    - Soporta SQLite y MySQL
-    - Mantiene contexto de la conversación
-    - Coordina entre el modelo y las herramientas
-    - Escalable: fácil agregar nuevas tools
+    ...
     """
     
     def __init__(
@@ -25,16 +36,7 @@ class MCPAgent:
         db_path: Optional[str] = None,
         mysql_config: Optional[Dict] = None
     ):
-        """
-        Inicializa el agente
-        
-        Args:
-            api_key: API key de Gemini
-            model_name: Nombre del modelo de Gemini
-            db_type: Tipo de BD ('sqlite' o 'mysql')
-            db_path: Ruta para SQLite
-            mysql_config: Configuración para MySQL
-        """
+        # ... (El resto de __init__ está bien, no hay cambios) ...
         # Modelo de IA
         self.model = GeminiModel(api_key, model_name)
         
@@ -62,79 +64,75 @@ class MCPAgent:
         self.context: List[Dict[str, str]] = []
         self.max_context = 10
     
+    # --- 3. FUNCIÓN ASK() REESTRUCTURADA Y CORREGIDA ---
     def ask(self, question: str) -> str:
         """
-        Pregunta principal del agente (con lógica de auto-corrección)
+        Pregunta principal del agente (con auto-corrección y manejo de errores)
         """
         print(f"\n🤔 Pregunta: {question}")
-        
-        # 1. Agregar pregunta al contexto
         self._add_to_context("user", question)
         
-        # --- 2. Generar SQL (Intento 1) ---
-        print("⚙️  Generando consulta SQL (Intento 1)...")
-        sql = self._generate_sql(question)
-        
-        if sql == "NO_QUERY":
-            response = "No puedo responder esa pregunta con los datos disponibles."
-            self._add_to_context("assistant", response)
-            return response
-        
-        print(f"📊 SQL (Intento 1): {sql}")
-        
-        # --- 3. Ejecutar en la BD (Intento 1) ---
-        results = self.tools["database"].execute(sql)
-        
-        # --- 4. Lógica de Auto-Corrección ---
-        # Si el primer intento falló (devuelve un dict con 'error')
-        if results and "error" in results[0]:
-            original_error = results[0]['error']
-            print(f"⚠️ Error en SQL (Intento 1): {original_error}")
-            print("⚙️  Generando consulta SQL (Intento 2: Corrección)...")
+        response_text = "" # Inicializar la variable de respuesta
 
-            # Crear el prompt de corrección
-            correction_prompt = self._generate_sql_correction_prompt(question, sql, original_error)
+        try:
+            # --- 2. Generar SQL (Intento 1) ---
+            print("⚙️  Generando consulta SQL (Intento 1)...")
+            sql = self._generate_sql(question)
             
-            # Pedir a la IA que corrija el SQL (usando el contexto completo)
-            corrected_sql = self.model.ask(correction_prompt, self.context)
-            
-            # Limpiar el SQL corregido (por si acaso)
-            if corrected_sql.startswith("```sql"):
-                corrected_sql = corrected_sql.replace("```sql", "").replace("```", "").strip()
-            elif corrected_sql.startswith("```"):
-                corrected_sql = corrected_sql.replace("```", "").strip()
+            if sql == "NO_QUERY":
+                response_text = "No puedo responder esa pregunta con los datos disponibles."
+            else:
+                print(f"📊 SQL (Intento 1): {sql}")
+                results = self.tools["database"].execute(sql)
+                
+                # --- 4. Lógica de Auto-Corrección ---
+                if results and "error" in results[0]:
+                    original_error = results[0]['error']
+                    print(f"⚠️ Error en SQL (Intento 1): {original_error}")
+                    print("⚙️  Generando consulta SQL (Intento 2: Corrección)...")
 
-            if corrected_sql == "NO_QUERY":
-                response = f"Intenté corregir un error, pero no pude encontrar una respuesta ({original_error})."
-                self._add_to_context("assistant", response)
-                return response
+                    correction_prompt = self._generate_sql_correction_prompt(question, sql, original_error)
+                    corrected_sql = self.model.ask(correction_prompt, self.context)
+                    
+                    if corrected_sql.startswith("```sql"):
+                        corrected_sql = corrected_sql.replace("```sql", "").replace("```", "").strip()
+                    elif corrected_sql.startswith("```"):
+                        corrected_sql = corrected_sql.replace("```", "").strip()
 
-            print(f"📊 SQL (Intento 2): {corrected_sql}")
-            
-            # --- 5. Ejecutar en la BD (Intento 2) ---
-            results = self.tools["database"].execute(corrected_sql)
-            sql = corrected_sql # Actualizamos el SQL para la respuesta final
+                    if corrected_sql == "NO_QUERY":
+                        response_text = f"Intenté corregir un error, pero no pude encontrar una respuesta ({original_error})."
+                    else:
+                        print(f"📊 SQL (Intento 2): {corrected_sql}")
+                        results = self.tools["database"].execute(corrected_sql)
+                        sql = corrected_sql
 
-            # Si vuelve a fallar, nos rendimos
-            if results and "error" in results[0]:
-                final_error = results[0]['error']
-                print(f"❌ Error en SQL (Intento 2): {final_error}")
-                response = f"Error al ejecutar la consulta corregida: {final_error}"
-                self._add_to_context("assistant", response)
-                return response
+                        if results and "error" in results[0]:
+                            final_error = results[0]['error']
+                            print(f"❌ Error en SQL (Intento 2): {final_error}")
+                            response_text = f"Error al ejecutar la consulta corregida: {final_error}"
+                
+                # --- 6. Generar Respuesta Natural (si no hubo error) ---
+                if not response_text: # Si no hemos asignado un error
+                    print(f"✅ Resultados: {len(results)} filas")
+                    response_text = self._generate_response(question, sql, results)
+
+        except Exception as e:
+            # Captura cualquier error inesperado (como los de JSON)
+            print(f"❌ Ocurrió una excepción inesperada en 'ask': {e}")
+            response_text = "Lo siento, ocurrió un error interno al procesar tu solicitud."
+
+        # --- 7. Limpieza y Contexto (Ahora en un lugar seguro) ---
         
-        # --- 6. Generar Respuesta Natural ---
-        print(f"✅ Resultados: {len(results)} filas")
+        # Limpiar el ````json````
+        if response_text.strip().startswith("```json"):
+            print("Limpiando JSON envuelto en markdown...")
+            response_text = response_text.strip().replace("```json", "").replace("```", "").strip()
         
-        response = self._generate_response(question, sql, results)
-        
-        # 7. Agregar respuesta al contexto
-        self._add_to_context("assistant", response)
-        
-        return response
+        self._add_to_context("assistant", response_text)
+        return response_text
     
     def _generate_sql(self, question: str) -> str:
-        """Genera SQL usando el modelo"""
+        # ... (Esta función está bien, no hay cambios) ...
         schema = self.tools["database"].get_schema()
         
         db_hint = "MySQL" if self.db_type == 'mysql' else "SQLite"
@@ -152,7 +150,6 @@ Solo usa SELECT (no DELETE, UPDATE, DROP).
         
         sql = self.model.ask(prompt, self.context)
         
-        # Limpiar
         if sql.startswith("```sql"):
             sql = sql.replace("```sql", "").replace("```", "").strip()
         elif sql.startswith("```"):
@@ -161,7 +158,7 @@ Solo usa SELECT (no DELETE, UPDATE, DROP).
         return sql
     
     def _generate_sql_correction_prompt(self, question: str, bad_sql: str, error: str) -> str:
-        """Genera un prompt para que la IA corrija un SQL erróneo."""
+        # ... (Esta función está bien, no hay cambios) ...
         schema = self.tools["database"].get_schema()
         db_hint = "MySQL" if self.db_type == 'mysql' else "SQLite"
 
@@ -180,84 +177,78 @@ Por favor, corrige la consulta SQL. Genera SOLO la consulta SQL corregida (sin e
 Si no se puede responder, devuelve: NO_QUERY
 """
 
+    # --- 4. FUNCIÓN _generate_response() CORREGIDA ---
     def _generate_response(self, question: str, sql: str, results: List[Dict]) -> str:
         """
         Genera respuesta en lenguaje natural.
-        Si los resultados son tabulares, devuelve un JSON string.
-        De lo contrario, devuelve texto plano.
+        Decide si la respuesta es texto, tabla o gráfico.
         """
         
-        # Convertir resultados a un string para el prompt
-        results_str = str(results)
+        # Usamos json.dumps() CON EL CODIFICADOR PERSONALIZADO
+        results_str = json.dumps(results, cls=CustomDecimalEncoder)
         
-        # Si los resultados son muy largos, cortarlos para el prompt
         if len(results_str) > 3000:
             results_str = results_str[:3000] + "... (resultados truncados)"
         
-        # --- INICIO DE LA CORRECCIÓN ---
-        # NO PODEMOS USAR F-STRINGS (f"...") para el prompt principal
-        # porque la variable 'results_str' puede contener llaves {}
-        # que rompen el formateador de f-string (Error 500).
-        # Usaremos concatenación de strings normal.
-        
-        # 1. Definir las partes del prompt por separado
-        # Esta parte sí puede ser f-string porque question y sql son seguros
         prompt_header = f"""El usuario preguntó: {question}
 Se ejecutó: {sql}
 Resultados: """
         
-        # 2. Esta parte es un string normal (sin 'f' al inicio)
-        # Esto evita errores y no necesitamos escapar las llaves {{ }}
-        # También corregí el EJEMPLO para que use comillas dobles (JSON válido).
+        # --- INICIO DE LA LÓGICA MODIFICADA ---
+        # "Relajamos" la regla: ahora permitimos gráficos con 1 o más filas.
         prompt_body = """
 
-Eres un asistente de base de datos. Tu tarea es analizar los resultados y decidir la mejor forma de presentarlos.
+Eres un asistente de análisis de datos. Tu tarea es analizar la PREGUNTA del usuario y los RESULTADOS de la base de datos, 
+y decidir la mejor forma de presentarlos.
 
-REGLAS:
-1.  Si los resultados son una lista de múltiples ítems (ej: una lista de productos, proveedores, ventas), responde SOLAMENTE con un JSON string.
-    El JSON debe tener este formato:
-    {"type": "table", "title": "Un título descriptivo para la tabla", "content": [aquí van los datos de 'Resultados']}
-    NO añadas NADA antes o después del JSON.
+REGLAS DE DECISIÓN:
 
-2.  Si los resultados son una respuesta simple (ej: un conteo, un promedio, un solo nombre, o si no hay resultados), responde con texto plano.
-    NO uses markdown (sin ** o *).
-    Si hay listas, usa saltos de línea y guiones (-).
+1.  **RESPUESTA TIPO 'chart' (Gráfico):**
+    * **Cuándo usarlo:** Úsalo si la PREGUNTA pide explícitamente un "reporte", "análisis", "resumen gráfico", "comparativa", "ventas por día", "cantidad por X", etc.
+    * **Y ADEMÁS:** Los RESULTADOS son una agregación (GROUP BY) o una serie de tiempo con **1 O MÁS FILAS**. 
+    * **Formato:** `{"type": "chart", "chart_type": "bar", "title": "...", "content": [resultados], "label_key": "columna_X", "data_key": "columna_Y"}`
+    * (Usa "line" como `chart_type` si son ventas por fecha).
+
+2.  **RESPUESTA TIPO 'table' (Tabla):**
+    * **Cuándo usarlo:** Úsalo si la PREGUNTA pide "listar", "mostrar todos", "ver los...", etc.
+    * **Y ADEMÁS:** Los RESULTADOS son una lista (múltiples filas) pero la pregunta no pedía un "análisis" (ej. una lista de productos).
+    * **Formato:** `{"type": "table", "title": "...", "content": [resultados]}`
+
+3.  **RESPUESTA TIPO 'text' (Texto Plano):**
+    * **Cuándo usarlo:** Úsalo para todo lo demás.
+    * **Ejemplos:**
+        * Si la PREGUNTA es por un dato específico ("¿cuál es el precio de X?").
+        * Si los RESULTADOS son un solo número (un `COUNT` o `SUM` total, ej: `[{"count": 5}]`).
+        * Si no hay resultados (`[]`).
+        * Si la PREGUNTA es "¿cuántos productos hay?" y Resultados es `[{"count": 5}]`.
+
+INSTRUCCIÓN FINAL: Responde SOLAMENTE con el formato JSON (para 'chart' o 'table') o con el texto plano (para 'text').
 
 EJEMPLOS:
--   Pregunta: "¿Cuántos productos hay?" Resultados: [{'count': 5}] -> Respuesta: Hay 5 productos en total.
--   Pregunta: "Lístame los productos" Resultados: [{'nombre': 'A', 'precio': 100}, {'nombre': 'B', 'precio': 200}] -> Respuesta: {"type": "table", "title": "Lista de Productos", "content": [{"nombre": "A", "precio": 100}, {"nombre": "B", "precio": 200}]}
--   Pregunta: "¿Quién es el proveedor 1?" Resultados: [{'nombre': 'Drogas del Norte'}] -> Respuesta: El proveedor 1 es Drogas del Norte.
+-   Pregunta: "¿Cuántos productos hay?" Resultados: [{"count": 5}] -> Respuesta: Hay 5 productos en total.
+-   Pregunta: "Lístame los productos" Resultados: [20 filas de productos] -> Respuesta: {"type": "table", "title": "Lista de Productos", "content": [20 filas de productos]}
+-   Pregunta: "Dame un reporte de ventas por día" Resultados: [{"fecha": "2025-10-15", "total": 18600.00}] -> (¡AHORA SÍ ES GRÁFICO!) -> Respuesta: {"type": "chart", "chart_type": "bar", "title": "Reporte de Ventas por Día", "content": [{"fecha": "2025-10-15", "total": 18600.00}], "label_key": "fecha", "data_key": "total"}
 """
+        # --- FIN DE LA LÓGICA MODIFICADA ---
         
-        # 3. Construir el prompt final con concatenación simple
         prompt = prompt_header + results_str + prompt_body
         
-        # --- FIN DE LA CORRECCIÓN ---
-        
-        # Le pasamos el contexto completo para que entienda preguntas de seguimiento
         return self.model.ask(prompt, self.context)
     
     def _add_to_context(self, role: str, content: str):
-        """Agrega mensaje al contexto"""
+        # ... (Esta función está bien, no hay cambios) ...
         self.context.append({"role": role, "content": content})
         
-        # Mantener solo los últimos N mensajes
         if len(self.context) > self.max_context:
             self.context = self.context[-self.max_context:]
     
     def add_tool(self, name: str, tool: Any):
-        """
-        Agrega una nueva herramienta al agente
-        
-        Args:
-            name: Nombre de la herramienta
-            tool: Instancia de la herramienta
-        """
+        # ... (Esta función está bien, no hay cambios) ...
         self.tools[name] = tool
         print(f"✅ Herramienta '{name}' agregada")
     
     def get_context_summary(self) -> Dict:
-        """Obtiene resumen del contexto"""
+        # ... (Esta función está bien, no hay cambios) ...
         return {
             "messages": len(self.context),
             "database_type": self.db_type,
@@ -265,12 +256,12 @@ EJEMPLOS:
         }
     
     def clear_context(self):
-        """Limpia el contexto"""
+        # ... (Esta función está bien, no hay cambios) ...
         self.context = []
         print("🧹 Contexto limpiado")
     
     def close(self):
-        """Cierra conexiones"""
+        # ... (Esta función está bien, no hay cambios) ...
         for tool in self.tools.values():
             if hasattr(tool, 'close'):
                 tool.close()

@@ -18,7 +18,7 @@ MYSQL_CONFIG = {
     'host': os.getenv('MYSQL_HOST', 'localhost'),
     'user': os.getenv('MYSQL_USER', 'root'),
     'password': os.getenv('MYSQL_PASSWORD', 'fabian'),  # ⚠️ CAMBIA ESTO
-    'database': os.getenv('MYSQL_DATABASE', 'drogueria4'),
+    'database': os.getenv('MYSQL_DATABASE', 'drogueria5'),
     'port': int(os.getenv('MYSQL_PORT', '3307'))
 }
 

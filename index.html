@@ -6,6 +6,7 @@
     <title>FarmaChat - Tu Asistente Inteligente</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <style>
         * {
@@ -33,9 +34,7 @@
             background: linear-gradient(135deg, var(--bg-main) 0%, var(--bg-secondary) 100%);
             min-height: 100vh;
             display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 1rem;
+            padding: 1.5rem;
             position: relative;
             overflow: hidden;
         }
@@ -57,10 +56,77 @@
             50% { opacity: 1; }
         }
 
+        /* --- Main Layout --- */
+        .main-layout {
+            display: flex;
+            flex-direction: row;
+            width: 100%;
+            height: calc(100vh - 3rem);
+            gap: 1.5rem;
+            z-index: 1;
+        }
+
+        /* --- Panel de Resultados (Derecha) --- */
+        .results-panel {
+            flex: 2; /* Ocupa 2/3 del espacio */
+            height: 100%;
+            background: rgba(26, 33, 66, 0.8);
+            backdrop-filter: blur(20px);
+            border-radius: 24px;
+            border: 1px solid rgba(0, 180, 216, 0.2);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 2rem;
+            color: var(--text-primary);
+            overflow-y: auto;
+            transition: all 0.3s ease;
+        }
+        
+        .results-panel h1 {
+            color: var(--primary-light);
+            font-weight: 600;
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+            border-bottom: 1px solid rgba(0, 180, 216, 0.2);
+            padding-bottom: 1rem;
+        }
+
+        /* Estilos para el placeholder del panel de resultados */
+        .results-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+            color: var(--text-secondary);
+            opacity: 0.6;
+        }
+        
+        .results-placeholder i {
+            font-size: 4rem;
+            margin-bottom: 1.5rem;
+            color: var(--primary);
+        }
+        
+        .results-placeholder h2 {
+            font-size: 1.2rem;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        /* --- Panel de Chat (Izquierda) --- */
+        .chat-panel {
+            flex: 1; /* Ocupa 1/3 del espacio */
+            height: 100%;
+            min-width: 350px;
+            display: flex;
+        }
+        
+        /* --- Contenedor de Chat --- */
         .chat-container {
             width: 100%;
-            max-width: 900px;
-            height: 85vh;
+            max-width: none;
+            height: 100%;
             background: rgba(26, 33, 66, 0.8);
             backdrop-filter: blur(20px);
             border-radius: 24px;
@@ -82,9 +148,10 @@
             justify-content: space-between;
             position: relative;
             overflow: hidden;
+            flex-shrink: 0;
         }
 
-        .chat-header::before {
+         .chat-header::before {
             content: '';
             position: absolute;
             top: -50%;
@@ -153,15 +220,14 @@
         /* Área de mensajes */
         .chat-messages {
             flex: 1;
-            padding: 2rem 1.5rem;
+            padding: 1.5rem;
             overflow-y: auto;
             display: flex;
             flex-direction: column;
             gap: 1.5rem;
             background: var(--bg-chat);
         }
-
-        .chat-messages::-webkit-scrollbar {
+         .chat-messages::-webkit-scrollbar {
             width: 8px;
         }
 
@@ -183,8 +249,8 @@
             display: flex;
             gap: 0.75rem;
             animation: slideIn 0.3s ease-out;
+            max-width: 100%;
         }
-
         @keyframes slideIn {
             from {
                 opacity: 0;
@@ -222,7 +288,7 @@
         }
 
         .message-content {
-            max-width: 70%;
+            max-width: 85%;
             background: rgba(255, 255, 255, 0.05);
             padding: 1rem 1.25rem;
             border-radius: 18px;
@@ -240,6 +306,11 @@
 
         .message-wrapper.bot .message-content {
             background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .message-content .chat-table,
+        .message-content .chart-container {
+            display: none; 
         }
 
         .timestamp {
@@ -288,8 +359,9 @@
             padding: 1.5rem;
             background: rgba(20, 26, 58, 0.95);
             border-top: 1px solid rgba(255, 255, 255, 0.08);
+            flex-shrink: 0;
         }
-
+        
         .input-container {
             display: flex;
             gap: 1rem;
@@ -349,7 +421,7 @@
             opacity: 0.5;
             cursor: not-allowed;
         }
-
+        
         /* Mensaje de bienvenida especial */
         .welcome-card {
             background: linear-gradient(135deg, rgba(0, 180, 216, 0.1), rgba(114, 9, 183, 0.1));
@@ -358,7 +430,7 @@
             border-radius: 16px;
             margin-bottom: 1rem;
         }
-
+        
         .welcome-title {
             font-size: 1.1rem;
             font-weight: 600;
@@ -398,132 +470,178 @@
             transform: translateY(-2px);
         }
 
-       /* --- Estilos para la Tabla (Corregidos) --- */
-        .message-content .chat-table { /* Selector corregido */
+        /* --- Estilos para la Tabla (Panel Derecho) --- */
+        .results-panel .chat-table {
             width: 100%;
             border-collapse: collapse;
             margin-top: 1rem;
             font-size: 0.9rem;
-            border-radius: 8px; /* Bordes redondeados */
-            overflow: hidden; /* Para que el radius afecte a th */
-            border: 1px solid rgba(0, 180, 216, 0.2); /* Borde sutil */
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid rgba(0, 180, 216, 0.2);
         }
 
-        .message-content .chat-table th,
-        .message-content .chat-table td {
+        .results-panel .chat-table th,
+        .results-panel .chat-table td {
             padding: 0.75rem 1rem;
             text-align: left;
-            border-bottom: 1px solid rgba(0, 180, 216, 0.2); /* Separador de fila */
+            border-bottom: 1px solid rgba(0, 180, 216, 0.2);
             line-height: 1.4;
-            color: var(--text-primary); /* Color de texto general */
+            color: var(--text-primary);
         }
         
-        /* Cabeceras */
-        .message-content .chat-table th {
-            background-color: rgba(0, 180, 216, 0.1); /* Fondo sutil para cabecera */
-            color: var(--primary-light); /* Texto de cabecera más brillante */
+        .results-panel .chat-table th {
+            background-color: rgba(0, 180, 216, 0.1);
+            color: var(--primary-light);
             font-weight: 600;
-            
-            /* Arregla el problema de texto pegado */
             white-space: normal; 
             word-break: break-word;
         }
 
-        /* Filas */
-        .message-content .chat-table tr:nth-child(even) {
-            background-color: rgba(255, 255, 255, 0.02); /* Cebra sutil */
+        .results-panel .chat-table tr:nth-child(even) {
+            background-color: rgba(255, 255, 255, 0.02);
         }
         
-        .message-content .chat-table tr:last-child td {
-            border-bottom: none; /* Sin borde en la última fila */
+        .results-panel .chat-table tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* --- Estilos para el Gráfico (Panel Derecho) --- */
+        .results-panel .chart-container {
+            position: relative;
+            width: 100%;
+            max-height: 400px;
+            margin-top: 1.5rem;
+            background: rgba(255, 255, 255, 0.02);
+            padding: 1rem;
+            border-radius: 12px;
         }
 
-        /* Responsive */
-        @media (max-width: 768px) {
-            .chat-container {
-                height: 100vh;
-                max-width: 100%;
-                border-radius: 0;
-            }
 
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .main-layout {
+                flex-direction: column;
+                height: auto;
+            }
+            .chat-panel {
+                min-width: 100%;
+                height: 80vh;
+            }
+            .results-panel {
+                height: 60vh;
+            }
             .message-content {
                 max-width: 85%;
             }
+        }
 
+        @media (max-width: 768px) {
+            body {
+                padding: 0;
+            }
+            .main-layout {
+                gap: 0;
+            }
+            .chat-panel {
+                height: 100vh;
+            }
+            .chat-container {
+                border-radius: 0;
+            }
+            .results-panel {
+                 height: 70vh;
+                 border-radius: 0;
+            }
             .chat-header {
                 padding: 1rem;
             }
-
             .header-text h1 {
                 font-size: 1.1rem;
             }
         }
-
-        
     </style>
 </head>
 <body>
-    <div class="chat-container">
-        <div class="chat-header">
-            <div class="header-content">
-                <div class="logo-container">
-                    <i class="fas fa-pills"></i>
-                </div>
-                <div class="header-text">
-                    <h1>FarmaChat</h1>
-                    <div class="status">
-                        <span class="status-dot"></span>
-                        <span>Asistente en línea</span>
+
+    <div class="main-layout">
+
+        <div class="chat-panel">
+            <div class="chat-container">
+                <div class="chat-header">
+                    <div class="header-content">
+                        <div class="logo-container">
+                            <i class="fas fa-pills"></i>
+                        </div>
+                        <div class="header-text">
+                            <h1>FarmaChat</h1>
+                            <div class="status">
+                                <span class="status-dot"></span>
+                                <span>Asistente en línea</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
+        
+                <div class="chat-messages" id="chat-messages">
+                    <div class="welcome-card">
+                        <div class="welcome-title">
+                            <i class="fas fa-hand-sparkles"></i>
+                            ¡Bienvenido a FarmaChat!
+                        </div>
+                        <div class="welcome-text">
+                            Soy tu asistente inteligente. Tus reportes y listas se mostrarán en el panel de la derecha.
+                        </div>
+                        <div class="quick-actions">
+                            <button class="quick-action-btn" onclick="sendQuickMessage('¿Qué productos tienes disponibles?')">
+                                <i class="fas fa-box"></i> Ver productos
+                            </button>
+                            <button class="quick-action-btn" onclick="sendQuickMessage('Dame un reporte de ventas por día')">
+                                <i class="fas fa-chart-line"></i> Reporte de Ventas
+                            </button>
+                            <button class="quick-action-btn" onclick="sendQuickMessage('¿Cuántos productos hay por proveedor?')">
+                                <i class="fas fa-chart-bar"></i> Productos por Proveedor
+                            </button>
+                        </div>
+                    </div>
+                </div>
+        
+                <div class="chat-input-wrapper">
+                    <form id="chat-form">
+                        <div class="input-container">
+                            <input 
+                                type="text" 
+                                id="user-input" 
+                                placeholder="Escribe tu pregunta aquí..." 
+                                autocomplete="off"
+                            >
+                            <button type="submit" class="send-button" id="send-btn">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
-
-        <div class="chat-messages" id="chat-messages">
-            <div class="welcome-card">
-                <div class="welcome-title">
-                    <i class="fas fa-hand-sparkles"></i>
-                    ¡Bienvenido a FarmaChat!
-                </div>
-                <div class="welcome-text">
-                    Soy tu asistente inteligente especializado en droguería. Puedo ayudarte con consultas sobre productos, inventario, marcas y mucho más.
-                </div>
-                <div class="quick-actions">
-                    <button class="quick-action-btn" onclick="sendQuickMessage('¿Qué productos tienes disponibles?')">
-                        <i class="fas fa-box"></i> Ver productos
-                    </button>
-                    <button class="quick-action-btn" onclick="sendQuickMessage('¿Cuántos productos de marca X hay?')">
-                        <i class="fas fa-search"></i> Buscar por marca
-                    </button>
-                    <button class="quick-action-btn" onclick="sendQuickMessage('¿Qué puedes hacer?')">
-                        <i class="fas fa-question-circle"></i> Ayuda
-                    </button>
-                </div>
+        
+        <div class="results-panel" id="results-panel">
+            <div class="results-placeholder" id="results-placeholder">
+                <i class="fas fa-chart-bar"></i>
+                <h2>Panel de Visualización</h2>
+                <p>Tus tablas y gráficos aparecerán aquí.</p>
             </div>
-        </div>
+            </div>
 
-        <div class="chat-input-wrapper">
-            <form id="chat-form">
-                <div class="input-container">
-                    <input 
-                        type="text" 
-                        id="user-input" 
-                        placeholder="Escribe tu pregunta aquí..." 
-                        autocomplete="off"
-                    >
-                    <button type="submit" class="send-button" id="send-btn">
-                        <i class="fas fa-paper-plane"></i>
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
+    </div> <script>
+        // --- JAVASCRIPT (Sin cambios) ---
 
-    <script>
         const chatMessages = document.getElementById('chat-messages');
         const chatForm = document.getElementById('chat-form');
         const userInput = document.getElementById('user-input');
         const sendBtn = document.getElementById('send-btn');
+        
+        const resultsPanel = document.getElementById('results-panel');
+        const resultsPlaceholder = document.getElementById('results-placeholder');
         
         const API_URL = 'http://127.0.0.1:8000/ask';
 
@@ -531,8 +649,20 @@
             const now = new Date();
             return now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
         }
+        
+        function showInResultsPanel(title, htmlContent) {
+            if (resultsPlaceholder) {
+                resultsPlaceholder.style.display = 'none';
+            }
+            
+            resultsPanel.innerHTML = `
+                <h1>${title.replace(/\n/g, '<br>')}</h1>
+                <div class="content-wrapper">
+                    ${htmlContent}
+                </div>
+            `;
+        }
 
-        // --- FUNCIÓN MODIFICADA ---
         function addMessage(type, text, showTyping = false) {
             const wrapper = document.createElement('div');
             wrapper.classList.add('message-wrapper', type);
@@ -566,14 +696,10 @@
             wrapper.appendChild(avatar);
             wrapper.appendChild(content);
             chatMessages.appendChild(wrapper);
-            
             chatMessages.scrollTop = chatMessages.scrollHeight;
-            
             return wrapper;
         }
         
-        // --- ¡NUEVA FUNCIÓN! ---
-        // Aquí puedes añadir todas las traducciones que necesites
         function translateHeader(header) {
             const translations = {
                 'nombre_producto': 'Producto',
@@ -584,30 +710,19 @@
                 'direccion_proveedor': 'Dirección',
                 'fecha_venta': 'Fecha',
                 'total_venta': 'Total',
-                // Añade más traducciones aquí
             };
-            // Devuelve la traducción o el nombre original si no existe
             return translations[header] || header;
         }
 
-
-        // --- FUNCIÓN MODIFICADA ---
-        // (Usa translateHeader)
         function createTableHtml(data) {
             if (!data || data.length === 0) return '';
-
             const headers = Object.keys(data[0]);
             let table = '<table class="chat-table">';
-            
-            // Fila de cabecera
             table += '<thead><tr>';
             for (const header of headers) {
-                // ¡AQUÍ ESTÁ LA MAGIA!
                 table += `<th>${translateHeader(header)}</th>`;
             }
             table += '</tr></thead>';
-            
-            // Filas de datos
             table += '<tbody>';
             for (const row of data) {
                 table += '<tr>';
@@ -618,38 +733,90 @@
                 table += '</tr>';
             }
             table += '</tbody></table>';
-            
             return table;
         }
-
-        // --- FUNCIÓN (Sin cambios) ---
+        
         function addTableMessage(title, tableData) {
-            const wrapper = document.createElement('div');
-            wrapper.classList.add('message-wrapper', 'bot');
-
-            const avatar = document.createElement('div');
-            avatar.classList.add('avatar', 'bot');
-            avatar.innerHTML = '<i class="fas fa-robot"></i>';
-
-            const content = document.createElement('div');
-            content.classList.add('message-content');
-            
             const tableHtml = createTableHtml(tableData);
-            const formattedTitle = title.replace(/\n/g, '<br>');
+            showInResultsPanel(title, tableHtml);
+            addMessage('bot', `Aquí tienes el reporte: ${title}`);
+        }
+        
+        function renderChart(canvasId, chartType, data, labelKey, dataKey) {
+            try {
+                const ctx = document.getElementById(canvasId).getContext('2d');
+                
+                const labels = data.map(item => item[labelKey]);
+                const dataPoints = data.map(item => item[dataKey]);
+                
+                Chart.defaults.color = 'rgba(232, 241, 245, 0.7)';
+                Chart.defaults.borderColor = 'rgba(0, 180, 216, 0.2)';
 
-            content.innerHTML = `
-                <div>${formattedTitle}</div>
-                ${tableHtml}
-                <div class="timestamp">${getCurrentTime()}</div>
+                new Chart(ctx, {
+                    type: chartType, 
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: translateHeader(dataKey),
+                            data: dataPoints,
+                            backgroundColor: 'rgba(0, 180, 216, 0.2)',
+                            borderColor: 'rgba(0, 180, 216, 1)',
+                            borderWidth: 1,
+                            fill: chartType === 'line'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                grid: {
+                                    color: 'rgba(0, 180, 216, 0.1)'
+                                },
+                                ticks: {
+                                    color: 'rgba(232, 241, 245, 0.7)'
+                                }
+                            },
+                            x: {
+                                grid: {
+                                    display: false
+                                },
+                                ticks: {
+                                    color: 'rgba(232, 241, 245, 0.7)'
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                display: dataKey.length > 1,
+                                labels: {
+                                    color: 'rgba(232, 241, 245, 0.9)'
+                                }
+                            }
+                        }
+                    }
+                });
+            } catch (e) {
+                console.error("Error al dibujar el gráfico:", e);
+            }
+        }
+        
+        function addChartMessage(title, chartData) {
+            const canvasId = 'chart-' + Date.now();
+            const chartHtml = `
+                <div class="chart-container" style="position: relative; height:400px; width:100%">
+                    <canvas id="${canvasId}"></canvas>
+                </div>
             `;
+            showInResultsPanel(title, chartHtml);
+            addMessage('bot', `Aquí tienes el gráfico: ${title}`);
             
-            wrapper.appendChild(avatar);
-            wrapper.appendChild(content);
-            chatMessages.appendChild(wrapper);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
+            setTimeout(() => {
+                renderChart(canvasId, chartData.chart_type, chartData.content, chartData.label_key, chartData.data_key);
+            }, 0);
         }
 
-        // --- FUNCIÓN (Sin cambios) ---
         async function sendMessage(question) {
             if (!question.trim()) return;
 
@@ -662,25 +829,26 @@
             try {
                 const response = await fetch(API_URL, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ question: question })
                 });
 
-                if (!response.ok) {
-                    throw new Error(`Error HTTP: ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
 
                 const data = await response.json();
-                const answer = data.answer;
+                const answer = data.answer; 
                 
                 chatMessages.removeChild(typingMessage);
                 
                 try {
                     const jsonData = JSON.parse(answer);
+                    
                     if (jsonData && jsonData.type === 'table') {
                         addTableMessage(jsonData.title, jsonData.content);
+                    
+                    } else if (jsonData && jsonData.type === 'chart') {
+                        addChartMessage(jsonData.title, jsonData);
+                    
                     } else {
                         addMessage('bot', answer);
                     }
@@ -698,7 +866,6 @@
             }
         }
 
-        // --- FUNCIÓN (Sin cambios) ---
         function sendQuickMessage(message) {
             userInput.value = message;
             sendMessage(message);
@@ -718,7 +885,5 @@
 
         userInput.focus();
     </script>
-</body>
-</html>
 </body>
 </html>
