@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
+import json
 
 # Importar la lógica de tu agente
 from agent import MCPAgent
@@ -18,23 +19,25 @@ from config import (
 )
 
 # --- Modelos de Datos (Pydantic) ---
-# Esto define qué JSON debe enviarte el cliente
+
+# 1. Para hacer preguntas normales
 class QuestionRequest(BaseModel):
     question: str
 
-# Esto define qué JSON les vas a devolver
+# 2. (NUEVO) Para confirmar una operación de escritura (INSERT/UPDATE)
+class ConfirmRequest(BaseModel):
+    sql_query: str
+
+# 3. Lo que devolvemos al frontend
 class AnswerResponse(BaseModel):
     answer: str
 
 # --- Variable Global para el Agente ---
-# Aquí guardaremos la instancia de tu agente para no tener que
-# crearla con cada pregunta (lo cual sería lento).
 agente_global = None
 
 # --- Eventos de Inicio y Cierre (Lifespan) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # --- Código que se ejecuta AL INICIAR la API ---
     global agente_global
     print("=" * 80)
     print("🤖 Iniciando Agente MCP para la API...")
@@ -43,7 +46,7 @@ async def lifespan(app: FastAPI):
         agente_global = MCPAgent(
             api_key=GEMINI_API_KEY,
             model_name=GEMINI_MODEL,
-            db_type=DATABASE_TYPE, # Usará 'mysql' de tu config
+            db_type=DATABASE_TYPE, 
             mysql_config=MYSQL_CONFIG
         )
         print("✅ AGENTE CONECTADO Y LISTO")
@@ -51,11 +54,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"❌❌ ERROR CRÍTICO AL INICIAR AGENTE ❌❌")
         print(f"Error: {e}")
-        agente_global = None # El agente falló al iniciar
+        agente_global = None 
     
-    yield # Aquí es donde la API vive y recibe peticiones
+    yield 
     
-    # --- Código que se ejecuta AL CERRAR la API ---
     if agente_global:
         print("\n🔌 Cerrando conexión del agente...")
         agente_global.close()
@@ -64,69 +66,78 @@ async def lifespan(app: FastAPI):
 # --- Creación de la App FastAPI ---
 app = FastAPI(
     title="Agente de Droguería API",
-    description="Una API para hacer preguntas en lenguaje natural a la base de datos 'drogueria4'.",
-    version="1.0.0",
-    lifespan=lifespan # Gestiona el inicio y cierre
+    description="API con soporte para consultas y escritura confirmada.",
+    version="2.0.0", # Actualizamos versión
+    lifespan=lifespan
 )
 
-origins = [
-    "*", # Permite todas las fuentes (para pruebas)
-    # En producción, deberías ser más específico:
-    # "http://localhost",
-    # "http://127.0.0.1",
-    # "null" # Permite solicitudes de 'file://' (abrir el HTML localmente)
-]
-
+origins = ["*"] # Configura esto mejor para producción
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"], # Permite todos los métodos (GET, POST, etc.)
-    allow_headers=["*"], # Permite todos los encabezados
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# --- Definición de Endpoints (las "URLs" de tu API) ---
+# --- Endpoints ---
 
 @app.get("/", summary="Endpoint de saludo")
 def read_root():
-    """
-    Un endpoint simple para verificar que la API está funcionando.
-    """
-    return {"message": "¡Bienvenido a la API del Agente de Droguería! Usa el endpoint /ask."}
+    return {"message": "API del Agente activa. Usa /ask para preguntar o /confirm para ejecutar cambios."}
 
-@app.post("/ask", response_model=AnswerResponse, summary="Hacer una pregunta al agente")
+@app.post("/ask", response_model=AnswerResponse, summary="Hacer una pregunta")
 async def ask_agent(request: QuestionRequest):
     """
-    Envía una pregunta en lenguaje natural al agente.
-    
-    - **Request body (JSON)**: `{"question": "Tu pregunta aquí"}`
-    - **Response body (JSON)**: `{"answer": "La respuesta del agente"}`
+    Envía una pregunta. Si es un INSERT/UPDATE, el agente devolverá 
+    un JSON de confirmación en texto, que el frontend debe interpretar.
     """
     if agente_global is None:
-        # Esto pasa si el agente falló al iniciar (ej: mala contraseña de BD)
-        raise HTTPException(status_code=503, detail="Servicio no disponible: El agente no pudo inicializarse.")
+        raise HTTPException(status_code=503, detail="El agente no está disponible.")
     
     try:
-        print(f"\n🤔 Pregunta recibida por API: {request.question}")
-        
-        # ¡Aquí ocurre la magia!
-        # Llamamos al método .ask() de la instancia de tu agente
+        print(f"\n🤔 Pregunta recibida: {request.question}")
         respuesta_agente = agente_global.ask(request.question)
-        
-        print(f"🤖 Respuesta generada: {respuesta_agente}")
-        
-        # Devolvemos la respuesta en el formato JSON definido
+        print(f"🤖 Respuesta enviada (puede ser texto o JSON): {respuesta_agente[:100]}...") 
         return AnswerResponse(answer=respuesta_agente)
     
     except Exception as e:
-        print(f"❌ Error durante la ejecución de /ask: {e}")
-        # Si algo sale mal, envía un error 500
-        raise HTTPException(status_code=500, detail=f"Error interno del servidor: {e}")
+        print(f"❌ Error en /ask: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-# --- Ejecución de la API ---
+# --- (NUEVO) ENDPOINT DE CONFIRMACIÓN ---
+@app.post("/confirm", summary="Ejecutar SQL confirmado por usuario")
+async def confirm_action(request: ConfirmRequest):
+    """
+    Recibe un SQL de escritura (INSERT/UPDATE) que el usuario ya aprobó
+    en el frontend y lo ejecuta directamente en la base de datos.
+    """
+    if agente_global is None:
+        raise HTTPException(status_code=503, detail="El agente no está disponible.")
+
+    try:
+        sql_to_run = request.sql_query
+        print(f"\n⚠️ EJECUTANDO SQL CONFIRMADO: {sql_to_run}")
+
+        # 1. Accedemos directamente a la herramienta de base de datos del agente
+        #    Asumimos que la key se llama "database" (como pusimos en agent.py)
+        db_tool = agente_global.tools.get("database")
+        
+        if not db_tool:
+             raise HTTPException(status_code=500, detail="Herramienta de base de datos no encontrada.")
+
+        # 2. Llamamos a la función execute_write que creamos en mysql_tool.py
+        #    Nota: execute_write devuelve un diccionario, ej: {"success": True, "message": "..."}
+        resultado = db_tool.execute_write(sql_to_run)
+        
+        # 3. Convertimos el diccionario a JSON string para devolverlo
+        return {"answer": json.dumps(resultado)}
+
+    except Exception as e:
+        print(f"❌ Error en /confirm: {e}")
+        raise HTTPException(status_code=500, detail=f"Error ejecutando SQL: {str(e)}")
+
 if __name__ == "__main__":
-    # Esto te permite ejecutar la API con: python api.py
-    # --reload hace que el servidor se reinicie solo cada vez que guardas cambios
     print("Iniciando servidor API en http://127.0.0.1:8000")
     uvicorn.run("api:app", host="127.0.0.1", port=8000, reload=True)

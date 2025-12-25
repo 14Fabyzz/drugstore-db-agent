@@ -132,25 +132,45 @@ class MCPAgent:
         return response_text
     
     def _generate_sql(self, question: str) -> str:
-        # ... (Esta función está bien, no hay cambios) ...
+        # Obtener el esquema actual de la BD
         schema = self.tools["database"].get_schema()
         
         db_hint = "MySQL" if self.db_type == 'mysql' else "SQLite"
         
-        prompt = f"""Eres un experto en SQL para {db_hint}. 
+        # --- INICIO DEL PROMPT EXPERTO LEGACY PHARMACY ---
+        system_instruction = f"""
+Eres un asistente experto en gestión de inventario para "Legacy Pharmacy" usando {db_hint}.
+Tu trabajo es generar consultas SQL precisas para responder preguntas sobre productos, stock y vencimientos.
 
+AQUÍ ESTÁ EL ESQUEMA DE LA BASE DE DATOS:
 {schema}
 
-Pregunta: {question}
+REGLAS EXPERTAS (PRIORIDAD ALTA):
+1. **PARA CONSULTAR STOCK:** Usa SIEMPRE la vista `v_stock_productos`.
+   - Columna `stock_total` tiene la cantidad real.
+   - Columna `nivel_stock` te dice si es BAJO, OK o SIN_STOCK.
+   - Ejemplo: SELECT * FROM v_stock_productos WHERE nombre_comercial LIKE '%Dolex%';
 
-Genera SOLO la consulta SQL (sin explicaciones). 
+2. **PARA VENCIMIENTOS:** Usa SIEMPRE la vista `v_semaforo_vencimientos`.
+   - Tiene columnas: `dias_restantes`, `color_alerta` (ROJO/AMARILLO/VERDE) y `accion_sugerida`.
+   - Ejemplo: SELECT * FROM v_semaforo_vencimientos WHERE color_alerta = 'ROJO';
+
+3. **PARA PRECIOS O DETALLES:** Usa la tabla `productos` o `v_stock_productos`.
+
+4. **MODIFICACIONES:**
+   - Puedes generar `INSERT` o `UPDATE` si el usuario lo pide explícitamente.
+   - NO uses `DELETE`, `DROP` o `ALTER`.
+
+Pregunta del usuario: {question}
+
+Genera SOLO la consulta SQL (sin explicaciones ni formato markdown).
 Si no se puede responder, devuelve: NO_QUERY
-Puedes usar: SELECT, INSERT, UPDATE.
-NO uses: DELETE, DROP, ALTER.
 """
+        # --- FIN DEL PROMPT ---
         
-        sql = self.model.ask(prompt, self.context)
+        sql = self.model.ask(system_instruction, self.context)
         
+        # Limpieza de markdown (por si acaso Gemini lo pone)
         if sql.startswith("```sql"):
             sql = sql.replace("```sql", "").replace("```", "").strip()
         elif sql.startswith("```"):
