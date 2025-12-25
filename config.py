@@ -17,8 +17,8 @@ GEMINI_MODEL = "gemini-2.5-flash" # Asegúrate de usar un modelo disponible
 MYSQL_CONFIG = {
     'host': os.getenv('MYSQL_HOST', 'localhost'),
     'user': os.getenv('MYSQL_USER', 'root'),
-    'password': os.getenv('MYSQL_PASSWORD', 'fabian'),  # ⚠️ CAMBIA ESTO
-    'database': os.getenv('MYSQL_DATABASE', 'drogueria5'),
+    'password': os.getenv('MYSQL_PASSWORD', 'fabian'), 
+    'database': os.getenv('MYSQL_DATABASE', 'legacy03'),
     'port': int(os.getenv('MYSQL_PORT', '3307'))
 }
 

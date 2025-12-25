@@ -112,6 +112,43 @@ class MySQLTool:
             
         except mysql.connector.Error as e:
             return [{"error": str(e)}]
+        
+        
+
+    def execute_write(self, sql: str) -> Dict[str, Any]:
+        """
+        Ejecuta una consulta de ESCRITURA (INSERT, UPDATE, DELETE)
+        y retorna el resultado.
+        
+        Args:
+            sql: Consulta SQL de escritura
+        
+        Returns:
+            Un diccionario con el estado de la operación.
+        """
+        try:
+            # Validar que NO sea un SELECT
+            sql_upper = sql.strip().upper()
+            if sql_upper.startswith('SELECT'):
+                return {"error": "Esta función es solo para INSERT, UPDATE o DELETE."}
+
+            self.cursor.execute(sql)
+            self.conn.commit() # ¡MUY IMPORTANTE! Confirmar la transacción
+            
+            rows_affected = self.cursor.rowcount
+            
+            if sql_upper.startswith('INSERT'):
+                return {"success": True, "message": f"Inserción completada. {rows_affected} fila(s) afectada(s)."}
+            elif sql_upper.startswith('UPDATE'):
+                return {"success": True, "message": f"Actualización completada. {rows_affected} fila(s) afectada(s)."}
+            elif sql_upper.startswith('DELETE'):
+                return {"success": True, "message": f"Eliminación completada. {rows_affected} fila(s) afectada(s)."}
+            else:
+                return {"success": True, "message": f"Operación completada. {rows_affected} fila(s) afectada(s)."}
+
+        except mysql.connector.Error as e:
+            self.conn.rollback() # Revertir cambios si algo falla
+            return {"error": str(e)}    
     
     def test_connection(self) -> bool:
         """Prueba la conexión a la base de datos"""

@@ -145,7 +145,8 @@ Pregunta: {question}
 
 Genera SOLO la consulta SQL (sin explicaciones). 
 Si no se puede responder, devuelve: NO_QUERY
-Solo usa SELECT (no DELETE, UPDATE, DROP).
+Puedes usar: SELECT, INSERT, UPDATE.
+NO uses: DELETE, DROP, ALTER.
 """
         
         sql = self.model.ask(prompt, self.context)
@@ -180,11 +181,33 @@ Si no se puede responder, devuelve: NO_QUERY
     # --- 4. FUNCIÓN _generate_response() CORREGIDA ---
     def _generate_response(self, question: str, sql: str, results: List[Dict]) -> str:
         """
-        Genera respuesta en lenguaje natural.
+        Genera respuesta. Intercepta INSERT/UPDATE para pedir confirmación.
         Decide si la respuesta es texto, tabla o gráfico.
         """
         
-        # Usamos json.dumps() CON EL CODIFICADOR PERSONALIZADO
+        # --- ¡NUEVA LÓGICA DE INTERCEPCIÓN! ---
+        sql_upper = sql.strip().upper()
+        if sql_upper.startswith("INSERT") or sql_upper.startswith("UPDATE"):
+            
+            # ¡IMPORTANTE! Generamos el JSON de confirmación
+            # Usamos json.dumps para asegurarnos de que el SQL
+            # (que puede tener comillas) se guarde como un string JSON válido.
+            
+            confirm_data = {
+                "type": "confirm",
+                "title": "Confirmación Requerida",
+                "message": "Estoy a punto de realizar la siguiente operación en la base de datos:",
+                "sql_query": sql 
+            }
+            # Devolvemos el JSON de confirmación como un string
+            return json.dumps(confirm_data)
+
+        # --- FIN DE LA LÓGICA DE INTERCEPCIÓN ---
+        
+        # (El resto de la función es la misma lógica de siempre
+        # para texto, tablas y gráficos, que solo se ejecutará
+        # si el SQL fue un SELECT)
+        
         results_str = json.dumps(results, cls=CustomDecimalEncoder)
         
         if len(results_str) > 3000:
@@ -194,42 +217,27 @@ Si no se puede responder, devuelve: NO_QUERY
 Se ejecutó: {sql}
 Resultados: """
         
-        # --- INICIO DE LA LÓGICA MODIFICADA ---
-        # "Relajamos" la regla: ahora permitimos gráficos con 1 o más filas.
         prompt_body = """
 
 Eres un asistente de análisis de datos. Tu tarea es analizar la PREGUNTA del usuario y los RESULTADOS de la base de datos, 
 y decidir la mejor forma de presentarlos.
 
-REGLAS DE DECISIÓN:
+REGLAS DE DECISIÓN: (Has interceptado INSERT/UPDATE, ahora solo decides para SELECT)
 
 1.  **RESPUESTA TIPO 'chart' (Gráfico):**
-    * **Cuándo usarlo:** Úsalo si la PREGUNTA pide explícitamente un "reporte", "análisis", "resumen gráfico", "comparativa", "ventas por día", "cantidad por X", etc.
-    * **Y ADEMÁS:** Los RESULTADOS son una agregación (GROUP BY) o una serie de tiempo con **1 O MÁS FILAS**. 
+    * **Cuándo usarlo:** Si la PREGUNTA pide "reporte", "análisis", etc., y los RESULTADOS son una agregación con 1 O MÁS FILAS.
     * **Formato:** `{"type": "chart", "chart_type": "bar", "title": "...", "content": [resultados], "label_key": "columna_X", "data_key": "columna_Y"}`
-    * (Usa "line" como `chart_type` si son ventas por fecha).
 
 2.  **RESPUESTA TIPO 'table' (Tabla):**
-    * **Cuándo usarlo:** Úsalo si la PREGUNTA pide "listar", "mostrar todos", "ver los...", etc.
-    * **Y ADEMÁS:** Los RESULTADOS son una lista (múltiples filas) pero la pregunta no pedía un "análisis" (ej. una lista de productos).
+    * **Cuándo usarlo:** Si la PREGUNTA pide "listar", "mostrar todos", etc.
     * **Formato:** `{"type": "table", "title": "...", "content": [resultados]}`
 
 3.  **RESPUESTA TIPO 'text' (Texto Plano):**
-    * **Cuándo usarlo:** Úsalo para todo lo demás.
-    * **Ejemplos:**
-        * Si la PREGUNTA es por un dato específico ("¿cuál es el precio de X?").
-        * Si los RESULTADOS son un solo número (un `COUNT` o `SUM` total, ej: `[{"count": 5}]`).
-        * Si no hay resultados (`[]`).
-        * Si la PREGUNTA es "¿cuántos productos hay?" y Resultados es `[{"count": 5}]`.
+    * **Cuándo usarlo:** Para todo lo demás (datos únicos, conteos totales, sin resultados).
 
 INSTRUCCIÓN FINAL: Responde SOLAMENTE con el formato JSON (para 'chart' o 'table') o con el texto plano (para 'text').
-
-EJEMPLOS:
--   Pregunta: "¿Cuántos productos hay?" Resultados: [{"count": 5}] -> Respuesta: Hay 5 productos en total.
--   Pregunta: "Lístame los productos" Resultados: [20 filas de productos] -> Respuesta: {"type": "table", "title": "Lista de Productos", "content": [20 filas de productos]}
--   Pregunta: "Dame un reporte de ventas por día" Resultados: [{"fecha": "2025-10-15", "total": 18600.00}] -> (¡AHORA SÍ ES GRÁFICO!) -> Respuesta: {"type": "chart", "chart_type": "bar", "title": "Reporte de Ventas por Día", "content": [{"fecha": "2025-10-15", "total": 18600.00}], "label_key": "fecha", "data_key": "total"}
+... (El resto de tus EJEMPLOS no cambia) ...
 """
-        # --- FIN DE LA LÓGICA MODIFICADA ---
         
         prompt = prompt_header + results_str + prompt_body
         
