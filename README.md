@@ -1,3 +1,4 @@
+# 💊 Agente 009 - Inteligencia de Datos para Droguerías
 # FarmaChat - Asistente de IA para Droguería
 
 Un asistente de IA que te permite "hablar" con tu base de datos MySQL en lenguaje natural. Convierte preguntas como "¿Cuál fue el total de ventas de ayer?" en consultas SQL, obtiene los datos y te los presenta en un dashboard interactivo.
@@ -72,3 +73,27 @@ Sigue estos pasos para ejecutar el proyecto en tu máquina local.
 ### Prerrequisitos
 * Python 3.10+
 * Un servidor MySQL corriendo (ej: XAMPP, WAMP, Docker) con tu base de datos `drogueria4` creada.
+
+### Pasos de Instalación
+
+1.  **Clonar el repositorio:**
+    ```bash
+    git clone <url-del-repo>
+    cd Agente009
+    ```
+
+2.  **Instalar dependencias:**
+    ```bash
+    pip install google-generativeai mysql-connector-python fastapi uvicorn
+    ```
+
+3.  **Configuración:**
+    Asegúrate de crear el archivo `config.py` con tus credenciales de API de Google (Gemini) y la configuración de conexión a MySQL.
+
+### Ejecución
+
+Para iniciar el agente en modo interactivo por consola:
+
+```bash
+python main.py
+```
